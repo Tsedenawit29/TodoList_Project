@@ -1,118 +1,103 @@
 // DOM Elements
-const newTaskInput = document.getElementById('newTask');
-const addBtn = document.getElementById('addBtn');
-const taskContainer = document.getElementById('taskContainer');
-const greetingElement = document.getElementById('greeting');
-const usernameElement = document.getElementById('username');
-const timeElement = document.getElementById('time');
+const taskForm = document.getElementById('taskForm');
+const titleInput = document.getElementById('title');
+const descriptionInput = document.getElementById('description');
+const dueDateInput = document.getElementById('dueDate');
+const prioritySelect = document.getElementById('priority');
+const taskList = document.getElementById('taskList');
+const filterButtons = document.querySelectorAll('.filter-btn');
+const currentTimeElement = document.getElementById('current-time');
+const loginModal = document.getElementById('loginModal');
+const loginBtn = document.getElementById('loginBtn');
+const usernameInput = document.getElementById('username');
+const passwordInput = document.getElementById('password');
 
-// Initialize
+// App State
 let tasks = [];
 let authHeader = null;
+let currentFilter = 'all';
 
-// Set up greeting and time
-function updateGreeting() {
-    const now = new Date();
-    const hours = now.getHours();
-
-    let greeting;
-    if (hours < 12) greeting = "Good Morning";
-    else if (hours < 18) greeting = "Good Afternoon";
-    else greeting = "Good Evening";
-
-    greetingElement.textContent = `Hello, ${usernameElement.textContent} ${greeting}`;
+// Initialize
+function init() {
+    setupEventListeners();
+    updateClock();
+    setInterval(updateClock, 1000);
+    showLoginModal();
 }
 
-function updateTime() {
+// Event Listeners
+function setupEventListeners() {
+    // Task Form
+    taskForm.addEventListener('submit', handleAddTask);
+
+    // Filter Buttons
+    filterButtons.forEach(button => {
+        button.addEventListener('click', () => handleFilterChange(button.dataset.filter));
+    });
+
+    // Login
+    loginBtn.addEventListener('click', handleLogin);
+}
+
+// Time Functions
+function updateClock() {
     const now = new Date();
-    const timeString = now.toLocaleTimeString('en-US', {
+    currentTimeElement.textContent = now.toLocaleTimeString('en-US', {
         hour: 'numeric',
         minute: '2-digit',
         second: '2-digit'
     });
-    timeElement.textContent = timeString;
 }
 
-// Task management
-function renderTasks() {
-    taskContainer.innerHTML = '';
-
-    // Group tasks by date
-    const tasksByDate = {};
-    tasks.forEach(task => {
-        const dateStr = task.deadline || 'No Date';
-        if (!tasksByDate[dateStr]) {
-            tasksByDate[dateStr] = [];
-        }
-        tasksByDate[dateStr].push(task);
-    });
-
-    // Render each date group
-    for (const [date, dateTasks] of Object.entries(tasksByDate)) {
-        const dateGroup = document.createElement('div');
-        dateGroup.className = 'task-group';
-
-        const dateHeader = document.createElement('h3');
-        dateHeader.className = 'task-date';
-        dateHeader.textContent = `Date: ${formatDate(date)}`;
-        dateGroup.appendChild(dateHeader);
-
-        const taskList = document.createElement('ul');
-        taskList.className = 'task-list';
-
-        dateTasks.forEach(task => {
-            const taskItem = document.createElement('li');
-            taskItem.className = `task-item ${task.completed ? 'completed' : ''}`;
-            taskItem.innerHTML = `
-                <span class="task-text">${task.title}</span>
-                <div class="task-actions">
-                    <button onclick="toggleTask(${task.id})" class="toggle-btn">
-                        ${task.completed ? 'Undo' : 'Complete'}
-                    </button>
-                    <button onclick="deleteTask(${task.id})" class="delete-btn">Delete</button>
-                </div>
-            `;
-            taskList.appendChild(taskItem);
-        });
-
-        dateGroup.appendChild(taskList);
-        taskContainer.appendChild(dateGroup);
-    });
+// Authentication
+function showLoginModal() {
+    loginModal.style.display = 'flex';
 }
 
-function formatDate(dateString) {
-    if (!dateString || dateString === 'No Date') return 'No Date';
-    const options = { day: '2-digit', month: '2-digit', year: 'numeric' };
-    return new Date(dateString).toLocaleDateString('en-GB', options);
+function hideLoginModal() {
+    loginModal.style.display = 'none';
 }
 
-// Event listeners
-addBtn.addEventListener('click', addTask);
-newTaskInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') addTask();
-});
+function handleLogin() {
+    const username = usernameInput.value;
+    const password = passwordInput.value;
 
-// API functions
+    if (username && password) {
+        authHeader = 'Basic ' + btoa(`${username}:${password}`);
+        hideLoginModal();
+        loadTasks();
+    }
+}
+
+// Task CRUD Operations
 async function loadTasks() {
     try {
         const response = await fetch('/api/tasks', {
             headers: { 'Authorization': authHeader }
         });
+
+        if (!response.ok) throw new Error('Failed to load tasks');
+
         tasks = await response.json();
         renderTasks();
     } catch (error) {
         console.error('Error loading tasks:', error);
+        showLoginModal();
     }
 }
 
-async function addTask() {
-    const title = newTaskInput.value.trim();
-    if (!title) return;
+async function handleAddTask(e) {
+    e.preventDefault();
 
     const newTask = {
-        title,
-        deadline: new Date().toISOString().split('T')[0] // Today's date as default
+        title: titleInput.value.trim(),
+        description: descriptionInput.value.trim(),
+        deadline: dueDateInput.value,
+        priority: prioritySelect.value,
+        completed: false
     };
+
+    if (!newTask.title) return;
 
     try {
         const response = await fetch('/api/tasks', {
@@ -125,7 +110,7 @@ async function addTask() {
         });
 
         if (response.ok) {
-            newTaskInput.value = '';
+            taskForm.reset();
             loadTasks();
         }
     } catch (error) {
@@ -135,11 +120,14 @@ async function addTask() {
 
 async function toggleTask(id) {
     try {
-        await fetch(`/api/tasks/${id}/toggle`, {
+        const response = await fetch(`/api/tasks/${id}/toggle`, {
             method: 'PUT',
             headers: { 'Authorization': authHeader }
         });
-        loadTasks();
+
+        if (response.ok) {
+            loadTasks();
+        }
     } catch (error) {
         console.error('Error toggling task:', error);
     }
@@ -149,31 +137,125 @@ async function deleteTask(id) {
     if (!confirm('Are you sure you want to delete this task?')) return;
 
     try {
-        await fetch(`/api/tasks/${id}`, {
+        const response = await fetch(`/api/tasks/${id}`, {
             method: 'DELETE',
             headers: { 'Authorization': authHeader }
         });
-        loadTasks();
+
+        if (response.ok) {
+            loadTasks();
+        }
     } catch (error) {
         console.error('Error deleting task:', error);
     }
 }
 
-// Initialize
-function init() {
-    // Set username (you can make this dynamic)
-    usernameElement.textContent = 'Habib';
+// Filtering
+function handleFilterChange(filter) {
+    currentFilter = filter;
 
-    // Update greeting and time
-    updateGreeting();
-    updateTime();
-    setInterval(updateTime, 1000);
+    // Update active button
+    filterButtons.forEach(button => {
+        button.classList.toggle('active', button.dataset.filter === filter);
+    });
 
-    // Set up authentication (you'll need to implement your auth flow)
-    authHeader = 'Basic dXNlcjpwYXNzd29yZA=='; // Replace with your auth logic
-
-    // Load initial tasks
-    loadTasks();
+    renderTasks();
 }
 
+function filterTasks() {
+    switch (currentFilter) {
+        case 'active':
+            return tasks.filter(task => !task.completed);
+        case 'completed':
+            return tasks.filter(task => task.completed);
+        default:
+            return tasks;
+    }
+}
+
+// Rendering
+function renderTasks() {
+    const filteredTasks = filterTasks();
+    const groupedTasks = groupTasksByDate(filteredTasks);
+
+    taskList.innerHTML = '';
+
+    if (filteredTasks.length === 0) {
+        taskList.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-clipboard-list"></i>
+                <p>No tasks found</p>
+            </div>
+        `;
+        return;
+    }
+
+    for (const [date, dateTasks] of Object.entries(groupedTasks)) {
+        const dateGroup = document.createElement('div');
+        dateGroup.className = 'task-group';
+
+        dateGroup.innerHTML = `
+            <h3 class="task-date">
+                <i class="fas fa-calendar-day"></i>
+                ${formatDate(date)}
+            </h3>
+            <ul class="task-list">
+                ${dateTasks.map(task => createTaskElement(task)).join('')}
+            </ul>
+        `;
+
+        taskList.appendChild(dateGroup);
+    }
+}
+
+function groupTasksByDate(tasks) {
+    return tasks.reduce((groups, task) => {
+        const date = task.deadline || 'No Date';
+        if (!groups[date]) groups[date] = [];
+        groups[date].push(task);
+        return groups;
+    }, {});
+}
+
+function createTaskElement(task) {
+    return `
+        <li class="task-item ${task.completed ? 'completed' : ''}">
+            <div class="task-checkbox">
+                <input
+                    type="checkbox"
+                    ${task.completed ? 'checked' : ''}
+                    onchange="toggleTask(${task.id})"
+                >
+            </div>
+            <div class="task-content">
+                <h3>${task.title}</h3>
+                ${task.description ? `<p>${task.description}</p>` : ''}
+                <div class="task-meta">
+                    <span class="task-priority priority-${task.priority || 'medium'}">
+                        ${task.priority || 'medium'}
+                    </span>
+                    ${task.deadline ? `
+                        <span class="task-due-date">
+                            <i class="fas fa-clock"></i>
+                            ${formatDate(task.deadline)}
+                        </span>
+                    ` : ''}
+                </div>
+            </div>
+            <div class="task-actions">
+                <button onclick="deleteTask(${task.id})" class="delete-btn">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </li>
+    `;
+}
+
+function formatDate(dateString) {
+    if (!dateString || dateString === 'No Date') return 'No Due Date';
+    const options = { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' };
+    return new Date(dateString).toLocaleDateString('en-US', options);
+}
+
+// Initialize the app
 init();
