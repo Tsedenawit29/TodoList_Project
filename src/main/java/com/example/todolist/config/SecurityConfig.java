@@ -3,6 +3,7 @@ package com.example.todolist.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.core.userdetails.User;
@@ -10,7 +11,6 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
-
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
@@ -19,18 +19,12 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/home", "/login", "/css/**", "/js/**", "/images/**").permitAll()
-                        .anyRequest().authenticated()
+                        .requestMatchers("/", "/h2-console/**").permitAll() // Public endpoints
+                        .anyRequest().authenticated() // All others require auth
                 )
-                .formLogin(form -> form
-                        .loginPage("/login")
-                        .defaultSuccessUrl("/tasks", true)
-                        .permitAll()
-                )
-                .logout(logout -> logout
-                        .logoutSuccessUrl("/login?logout")
-                        .permitAll()
-                );
+                .httpBasic(Customizer.withDefaults()) // Enable Basic Auth
+                .csrf(csrf -> csrf.disable()) // Disable CSRF for API testing
+                .headers(headers -> headers.frameOptions(frameOptions -> frameOptions.disable())); // For H2 console
 
         return http.build();
     }
@@ -43,12 +37,6 @@ public class SecurityConfig {
                 .roles("USER")
                 .build();
 
-        UserDetails admin = User.withDefaultPasswordEncoder()
-                .username("admin")
-                .password("admin123")
-                .roles("ADMIN")
-                .build();
-
-        return new InMemoryUserDetailsManager(user, admin);
+        return new InMemoryUserDetailsManager(user);
     }
 }
