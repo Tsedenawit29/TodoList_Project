@@ -14,19 +14,23 @@ import org.springframework.security.web.SecurityFilterChain;
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .authorizeHttpRequests((requests) -> requests
-                        .requestMatchers("/", "/home", "/css/**", "/js/**").permitAll()
-                        .requestMatchers("/api/tasks/**").authenticated()
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/", "/home", "/login", "/css/**", "/js/**", "/images/**").permitAll()
+                        .anyRequest().authenticated()
                 )
-                .formLogin((form) -> form
+                .formLogin(form -> form
                         .loginPage("/login")
+                        .defaultSuccessUrl("/tasks", true)
                         .permitAll()
                 )
-                .logout((logout) -> logout.permitAll())
-                .csrf().disable(); // For simplicity in development, disable CSRF
+                .logout(logout -> logout
+                        .logoutSuccessUrl("/login?logout")
+                        .permitAll()
+                );
 
         return http.build();
     }
@@ -39,6 +43,12 @@ public class SecurityConfig {
                 .roles("USER")
                 .build();
 
-        return new InMemoryUserDetailsManager(user);
+        UserDetails admin = User.withDefaultPasswordEncoder()
+                .username("admin")
+                .password("admin123")
+                .roles("ADMIN")
+                .build();
+
+        return new InMemoryUserDetailsManager(user, admin);
     }
 }
