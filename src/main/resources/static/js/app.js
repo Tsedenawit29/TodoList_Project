@@ -1,84 +1,117 @@
-// Base64 encode helper
-function encodeCredentials(username, password) {
-    return btoa(`${username}:${password}`);
-}
+// DOM Elements
+const newTaskInput = document.getElementById('newTask');
+const addBtn = document.getElementById('addBtn');
+const taskContainer = document.getElementById('taskContainer');
+const greetingElement = document.getElementById('greeting');
+const usernameElement = document.getElementById('username');
+const timeElement = document.getElementById('time');
 
-// Global auth header
+// Initialize
+let tasks = [];
 let authHeader = null;
 
-// DOM Elements
-const taskForm = document.getElementById('taskForm');
-const taskList = document.getElementById('taskList');
-const loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
-const loginBtn = document.getElementById('loginBtn');
+// Set up greeting and time
+function updateGreeting() {
+    const now = new Date();
+    const hours = now.getHours();
 
-// Show login modal on first load
-document.addEventListener('DOMContentLoaded', () => {
-    loginModal.show();
+    let greeting;
+    if (hours < 12) greeting = "Good Morning";
+    else if (hours < 18) greeting = "Good Afternoon";
+    else greeting = "Good Evening";
+
+    greetingElement.textContent = `Hello, ${usernameElement.textContent} ${greeting}`;
+}
+
+function updateTime() {
+    const now = new Date();
+    const timeString = now.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+    timeElement.textContent = timeString;
+}
+
+// Task management
+function renderTasks() {
+    taskContainer.innerHTML = '';
+
+    // Group tasks by date
+    const tasksByDate = {};
+    tasks.forEach(task => {
+        const dateStr = task.deadline || 'No Date';
+        if (!tasksByDate[dateStr]) {
+            tasksByDate[dateStr] = [];
+        }
+        tasksByDate[dateStr].push(task);
+    });
+
+    // Render each date group
+    for (const [date, dateTasks] of Object.entries(tasksByDate)) {
+        const dateGroup = document.createElement('div');
+        dateGroup.className = 'task-group';
+
+        const dateHeader = document.createElement('h3');
+        dateHeader.className = 'task-date';
+        dateHeader.textContent = `Date: ${formatDate(date)}`;
+        dateGroup.appendChild(dateHeader);
+
+        const taskList = document.createElement('ul');
+        taskList.className = 'task-list';
+
+        dateTasks.forEach(task => {
+            const taskItem = document.createElement('li');
+            taskItem.className = `task-item ${task.completed ? 'completed' : ''}`;
+            taskItem.innerHTML = `
+                <span class="task-text">${task.title}</span>
+                <div class="task-actions">
+                    <button onclick="toggleTask(${task.id})" class="toggle-btn">
+                        ${task.completed ? 'Undo' : 'Complete'}
+                    </button>
+                    <button onclick="deleteTask(${task.id})" class="delete-btn">Delete</button>
+                </div>
+            `;
+            taskList.appendChild(taskItem);
+        });
+
+        dateGroup.appendChild(taskList);
+        taskContainer.appendChild(dateGroup);
+    });
+}
+
+function formatDate(dateString) {
+    if (!dateString || dateString === 'No Date') return 'No Date';
+    const options = { day: '2-digit', month: '2-digit', year: 'numeric' };
+    return new Date(dateString).toLocaleDateString('en-GB', options);
+}
+
+// Event listeners
+addBtn.addEventListener('click', addTask);
+newTaskInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') addTask();
 });
 
-// Handle login
-loginBtn.addEventListener('click', () => {
-    const username = document.getElementById('username').value;
-    const password = document.getElementById('password').value;
-    authHeader = 'Basic ' + encodeCredentials(username, password);
-    loginModal.hide();
-    loadTasks();
-});
-
-// Load all tasks
+// API functions
 async function loadTasks() {
     try {
         const response = await fetch('/api/tasks', {
             headers: { 'Authorization': authHeader }
         });
-
-        if (!response.ok) throw new Error('Failed to load tasks');
-
-        const tasks = await response.json();
-        renderTasks(tasks);
+        tasks = await response.json();
+        renderTasks();
     } catch (error) {
-        console.error('Error:', error);
-        alert('Please login again');
-        loginModal.show();
+        console.error('Error loading tasks:', error);
     }
 }
 
-// Render tasks to DOM
-function renderTasks(tasks) {
-    taskList.innerHTML = '';
-
-    tasks.forEach(task => {
-        const taskElement = document.createElement('div');
-        taskElement.className = `list-group-item task-card ${task.completed ? 'completed' : ''} ${isUrgent(task.dueDate) ? 'urgent' : ''}`;
-        taskElement.innerHTML = `
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h5 class="mb-1">${task.title}</h5>
-                    <p class="mb-1">${task.description || ''}</p>
-                    <small class="due-date">Due: ${formatDate(task.dueDate)}</small>
-                </div>
-                <div>
-                    <button onclick="toggleTask(${task.id})" class="btn btn-sm ${task.completed ? 'btn-secondary' : 'btn-success'} me-2">
-                        ${task.completed ? 'Undo' : 'Complete'}
-                    </button>
-                    <button onclick="deleteTask(${task.id})" class="btn btn-sm btn-danger">Delete</button>
-                </div>
-            </div>
-        `;
-        taskList.appendChild(taskElement);
-    });
-}
-
-// Add new task
-taskForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
+async function addTask() {
+    const title = newTaskInput.value.trim();
+    if (!title) return;
 
     const newTask = {
-        title: document.getElementById('title').value,
-        description: document.getElementById('description').value,
-        dueDate: document.getElementById('dueDate').value,
-        completed: false
+        title,
+        deadline: new Date().toISOString().split('T')[0] // Today's date as default
     };
 
     try {
@@ -91,60 +124,56 @@ taskForm.addEventListener('submit', async (e) => {
             body: JSON.stringify(newTask)
         });
 
-        if (!response.ok) throw new Error('Failed to add task');
-
-        document.getElementById('taskForm').reset();
-        loadTasks();
+        if (response.ok) {
+            newTaskInput.value = '';
+            loadTasks();
+        }
     } catch (error) {
-        console.error('Error:', error);
-        alert('Failed to add task');
-    }
-});
-
-// Toggle task completion
-async function toggleTask(id) {
-    try {
-        const response = await fetch(`/api/tasks/${id}/toggle`, {
-            method: 'PUT',
-            headers: { 'Authorization': authHeader }
-        });
-
-        if (!response.ok) throw new Error('Failed to update task');
-        loadTasks();
-    } catch (error) {
-        console.error('Error:', error);
+        console.error('Error adding task:', error);
     }
 }
 
-// Delete task
+async function toggleTask(id) {
+    try {
+        await fetch(`/api/tasks/${id}/toggle`, {
+            method: 'PUT',
+            headers: { 'Authorization': authHeader }
+        });
+        loadTasks();
+    } catch (error) {
+        console.error('Error toggling task:', error);
+    }
+}
+
 async function deleteTask(id) {
     if (!confirm('Are you sure you want to delete this task?')) return;
 
     try {
-        const response = await fetch(`/api/tasks/${id}`, {
+        await fetch(`/api/tasks/${id}`, {
             method: 'DELETE',
             headers: { 'Authorization': authHeader }
         });
-
-        if (!response.ok) throw new Error('Failed to delete task');
         loadTasks();
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Error deleting task:', error);
     }
 }
 
-// Helper: Format date
-function formatDate(dateString) {
-    if (!dateString) return 'No due date';
-    const options = { year: 'numeric', month: 'short', day: 'numeric' };
-    return new Date(dateString).toLocaleDateString(undefined, options);
+// Initialize
+function init() {
+    // Set username (you can make this dynamic)
+    usernameElement.textContent = 'Habib';
+
+    // Update greeting and time
+    updateGreeting();
+    updateTime();
+    setInterval(updateTime, 1000);
+
+    // Set up authentication (you'll need to implement your auth flow)
+    authHeader = 'Basic dXNlcjpwYXNzd29yZA=='; // Replace with your auth logic
+
+    // Load initial tasks
+    loadTasks();
 }
 
-// Helper: Check if task is urgent (due in < 3 days)
-function isUrgent(dateString) {
-    if (!dateString) return false;
-    const dueDate = new Date(dateString);
-    const today = new Date();
-    const diffDays = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
-    return diffDays <= 3 && diffDays >= 0;
-}
+init();
